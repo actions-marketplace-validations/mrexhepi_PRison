@@ -1,8 +1,59 @@
+# NOTE: dist/ is intentionally NOT ignored. The Actions runner executes the
+# committed dist/index.js directly, and CI verifies it matches a fresh build.
+
+# Dependencies
 node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+
+# Test and coverage output
 coverage/
-*.log
+.nyc_output/
+*.lcov
+junit*.xml
+.vitest/
+
+# Evaluation results (may contain real model output; never commit them)
+eval-results/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Secrets and local environment (keep example files tracked)
 .env
 .env.*
-.DS_Store
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.secrets
+.actrc
+
+# Local scanner reports produced while testing (fixtures live under tests/)
+/gitleaks-report.json
+/checkov-report.json
+/results.sarif
+/*.sarif
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Scratch
 tmp/
-eval-results/
+.tmp/
+*.tgz
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
