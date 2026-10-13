@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest a rule, scanner integration or improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What risk or workflow is not handled today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Example diff or scanner output (redacted)

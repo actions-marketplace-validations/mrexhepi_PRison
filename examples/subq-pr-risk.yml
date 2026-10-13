@@ -1,0 +1,43 @@
+# Example .github/subq-pr-risk.yml. It is read from the PR's *base* commit, so a pull
+# request cannot weaken the policy that evaluates it. Unknown keys are rejected.
+version: 1
+
+mode: terraform
+
+analysis:
+  max_files: 200
+  max_diff_lines: 12000
+  context_files: 10
+  max_context_tokens: 250000
+  fail_on_incomplete_context: false
+
+risk:
+  fail_on: high
+  require_review:
+    - critical
+    - high
+
+policies:
+  protected_paths:
+    - 'infrastructure/prod/**'
+    - '.github/workflows/**'
+  require_review_for:
+    - iam_changes
+    - security_group_changes
+    - database_migrations
+    - destructive_infrastructure_changes
+  critical_findings_always_fail: true
+  conventions:
+    - 'Production Terraform changes must be applied through the platform pipeline only.'
+
+scanners:
+  secrets: true
+  terraform: true
+  sarif: true
+  dependencies: false
+  required: []
+
+report:
+  destination: both
+  include_file_annotations: true
+  include_ai_explanation: true

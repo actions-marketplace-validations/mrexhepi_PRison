@@ -1,0 +1,414 @@
+{
+  "version": 1,
+  "description": "Labeled PR fixtures for evaluating SubQ PR Risk Scanner. Labels are the maintainer's expert judgment, not ground truth from incidents.",
+  "cases": [
+    {
+      "id": "low-docs",
+      "label": "low",
+      "title": "Fix typo in README",
+      "files": [
+        {
+          "filename": "README.md",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+Install with npm ci.",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass"]
+      }
+    },
+    {
+      "id": "low-refactor-with-tests",
+      "label": "low",
+      "title": "Extract price formatter",
+      "files": [
+        {
+          "filename": "src/format/price.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,3 @@\n+export function formatPrice(c: number): string {\n+  return (c / 100).toFixed(2);\n+}",
+          "additions": 3,
+          "deletions": 0
+        },
+        {
+          "filename": "tests/format/price.test.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+it('formats', () => expect(formatPrice(100)).toBe('1.00'));",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass"]
+      }
+    },
+    {
+      "id": "low-test-only",
+      "label": "low",
+      "title": "Add tests for parser",
+      "files": [
+        {
+          "filename": "tests/parser.test.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+it('parses empty input', () => expect(parse('')).toEqual([]));",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass"]
+      }
+    },
+    {
+      "id": "low-ui-copy",
+      "label": "low",
+      "title": "Update button label",
+      "files": [
+        {
+          "filename": "src/components/Button.tsx",
+          "status": "modified",
+          "patch": "@@ -12,0 +12,1 @@\n+  label = 'Save changes',",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass"]
+      }
+    },
+    {
+      "id": "high-open-sg-prod",
+      "label": "high",
+      "title": "Allow SSH for debugging",
+      "files": [
+        {
+          "filename": "infrastructure/prod/security.tf",
+          "status": "modified",
+          "patch": "@@ -30,0 +30,6 @@\n+resource \"aws_security_group_rule\" \"ssh\" {\n+  type        = \"ingress\"\n+  from_port   = 22\n+  to_port     = 22\n+  cidr_blocks = [\"0.0.0.0/0\"]\n+}",
+          "additions": 6,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "high-iam-wildcard",
+      "label": "high",
+      "title": "Give lambda broader permissions",
+      "files": [
+        {
+          "filename": "infra/iam.tf",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,3 @@\n+resource \"aws_iam_role_policy\" \"lambda\" {\n+  policy = jsonencode({ Statement = [{ Effect = \"Allow\", \"Action\": \"*\", Resource = \"*\" }] })\n+}",
+          "additions": 3,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "critical-aws-key",
+      "label": "high",
+      "title": "Configure uploads",
+      "files": [
+        {
+          "filename": "src/uploads.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+const s3 = new S3({ accessKeyId: \"AKIAIOSFODNN7EXAMPLE\" });",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": true,
+        "decisions": ["blocked"]
+      }
+    },
+    {
+      "id": "critical-private-key",
+      "label": "high",
+      "title": "Add deploy key",
+      "files": [
+        {
+          "filename": "deploy/key.txt",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,3 @@\n+-----BEGIN OPENSSH PRIVATE KEY-----\n+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n+-----END OPENSSH PRIVATE KEY-----",
+          "additions": 3,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": true,
+        "decisions": ["blocked"]
+      }
+    },
+    {
+      "id": "high-rds-protection",
+      "label": "high",
+      "title": "Simplify database teardown",
+      "files": [
+        {
+          "filename": "infra/prod/db.tf",
+          "status": "modified",
+          "patch": "@@ -5,3 +5,3 @@\n   engine = \"postgres\"\n-  deletion_protection = true\n+  deletion_protection = false\n+  skip_final_snapshot = true",
+          "additions": 2,
+          "deletions": 1
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "high-workflow-prt",
+      "label": "high",
+      "title": "Run CI for forks",
+      "files": [
+        {
+          "filename": ".github/workflows/ci.yml",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,5 @@\n+on: pull_request_target\n+jobs:\n+  test:\n+    steps:\n+      - run: echo \"${{ github.event.pull_request.title }}\"",
+          "additions": 5,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "high-tls-disabled",
+      "label": "high",
+      "title": "Fix flaky certificate errors",
+      "files": [
+        {
+          "filename": "src/http/client.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+const agent = new https.Agent({ rejectUnauthorized: false });",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "high-public-bucket",
+      "label": "high",
+      "title": "Share reports bucket",
+      "files": [
+        {
+          "filename": "infra/s3.tf",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,3 @@\n+resource \"aws_s3_bucket_acl\" \"reports\" {\n+  acl = \"public-read\"\n+}",
+          "additions": 3,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "high-drop-column",
+      "label": "high",
+      "title": "Remove legacy email column",
+      "files": [
+        {
+          "filename": "db/migrations/20261013_drop_email.sql",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+ALTER TABLE users DROP COLUMN email;",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": true,
+        "critical": false,
+        "decisions": ["review_required", "blocked"]
+      }
+    },
+    {
+      "id": "ambiguous-timeout",
+      "label": "ambiguous",
+      "title": "Increase upstream timeout",
+      "files": [
+        {
+          "filename": "src/upstream.ts",
+          "status": "modified",
+          "patch": "@@ -4,0 +4,1 @@\n+const REQUEST_TIMEOUT_MS = 30000;",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass", "review_required"]
+      }
+    },
+    {
+      "id": "ambiguous-auth-refactor",
+      "label": "ambiguous",
+      "title": "Refactor session middleware",
+      "files": [
+        {
+          "filename": "src/middleware/session.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,3 @@\n+export function readSession(req: Request) {\n+  return req.cookies['sid'] ?? null;\n+}",
+          "additions": 3,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass", "review_required"]
+      }
+    },
+    {
+      "id": "ambiguous-dep-bump",
+      "label": "ambiguous",
+      "title": "Upgrade express to v5",
+      "files": [
+        {
+          "filename": "package.json",
+          "status": "modified",
+          "patch": "@@ -10,1 +10,1 @@\n-    \"express\": \"^4.19.2\",\n+    \"express\": \"^5.1.0\",",
+          "additions": 1,
+          "deletions": 1
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["pass", "review_required"]
+      }
+    },
+    {
+      "id": "incomplete-large-pr",
+      "label": "incomplete",
+      "title": "Big rename",
+      "maxFiles": 5,
+      "files": [
+        {
+          "filename": "src/mod0/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v0 = 0;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod1/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v1 = 1;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod2/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v2 = 2;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod3/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v3 = 3;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod4/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v4 = 4;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod5/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v5 = 5;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod6/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v6 = 6;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod7/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v7 = 7;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod8/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v8 = 8;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod9/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v9 = 9;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod10/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v10 = 10;",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "filename": "src/mod11/index.ts",
+          "status": "modified",
+          "patch": "@@ -1,0 +1,1 @@\n+export const v11 = 11;",
+          "additions": 1,
+          "deletions": 0
+        }
+      ],
+      "expected": {
+        "highRisk": false,
+        "critical": false,
+        "decisions": ["review_required", "inconclusive"]
+      }
+    }
+  ]
+}

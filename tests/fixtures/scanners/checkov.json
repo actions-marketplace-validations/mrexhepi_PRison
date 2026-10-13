@@ -1,0 +1,30 @@
+{
+  "check_type": "terraform",
+  "results": {
+    "passed_checks": [],
+    "failed_checks": [
+      {
+        "check_id": "CKV_AWS_24",
+        "check_name": "Ensure no security groups allow ingress from 0.0.0.0:0 to port 22",
+        "file_path": "/infrastructure/prod/security.tf",
+        "repo_file_path": "/infrastructure/prod/security.tf",
+        "file_line_range": [1, 12],
+        "resource": "aws_security_group.web",
+        "severity": null,
+        "guideline": "https://docs.prismacloud.io/en/enterprise-edition/policy-reference/aws-policies/aws-networking-policies/networking-1-port-security"
+      },
+      {
+        "check_id": "CKV_AWS_19",
+        "check_name": "Ensure all data stored in the S3 bucket is securely encrypted at rest",
+        "file_path": "/unrelated/bucket.tf",
+        "file_line_range": [1, 5],
+        "resource": "aws_s3_bucket.logs",
+        "severity": "HIGH",
+        "guideline": null
+      }
+    ],
+    "skipped_checks": [],
+    "parsing_errors": []
+  },
+  "summary": { "passed": 0, "failed": 2, "skipped": 0, "parsing_errors": 0 }
+}

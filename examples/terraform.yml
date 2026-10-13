@@ -1,0 +1,45 @@
+# Terraform-focused assessment with Checkov findings, PR comment and enforcement.
+name: SubQ PR Risk Assessment (Terraform)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '**/*.hcl'
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write # update the single report comment
+
+jobs:
+  risk-assessment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Checkout is only needed so Checkov can read the files. Checkov performs static
+      # analysis and does not execute Terraform. Credentials are not persisted.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkov (static analysis, JSON output)
+        uses: bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf # v12.1347.0
+        continue-on-error: true
+        with:
+          framework: terraform
+          output_format: json
+          output_file_path: reports
+          soft_fail: true
+          download_external_modules: false
+
+      - name: Assess pull request risk
+        uses: mrexhepi/PRison@v1
+        with:
+          subq-api-key: ${{ secrets.SUBQ_API_KEY }}
+          mode: terraform
+          fail-on: high
+          report: both
+          checkov-report: reports/results_json.json

@@ -1,0 +1,106 @@
+name: SubQ PR Risk Scanner
+description: Assess pull request risk with SubQ Snap decisions, deterministic rules and your existing scanner results.
+author: Muharrem Rexhepi
+branding:
+  icon: shield
+  color: orange
+
+# Policy inputs default to empty so that `.github/subq-pr-risk.yml` can supply them.
+# Effective defaults are listed in each description and in the README.
+inputs:
+  subq-api-key:
+    description: Your SubQ API key. Pass it from a secret, e.g. `${{ secrets.SUBQ_API_KEY }}`. Required for real assessments.
+    required: false
+    default: ''
+  github-token:
+    description: Token used to read the PR and publish checks/comments.
+    required: false
+    default: ${{ github.token }}
+  config:
+    description: Path to the repository policy file, read from the PR base commit.
+    required: false
+    default: .github/subq-pr-risk.yml
+  mode:
+    description: 'Assessment focus: general, terraform, security or dependencies. Default: general.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Fail the step when effective risk reaches this level: never, medium, high or critical. Default: never.'
+    required: false
+    default: ''
+  report:
+    description: 'Where to publish the report: check, comment or both. Default: check.'
+    required: false
+    default: ''
+  max-files:
+    description: 'Maximum changed files to analyze. Default: 200.'
+    required: false
+    default: ''
+  max-diff-lines:
+    description: 'Maximum changed lines sent to the model. Default: 12000.'
+    required: false
+    default: ''
+  context-files:
+    description: 'Maximum additional repository files sent as context. Default: 10.'
+    required: false
+    default: ''
+  dry-run:
+    description: Report the decision without failing the step on risk. Operational errors still fail.
+    required: false
+    default: 'false'
+  provider-error-policy:
+    description: 'What to do when the AI assessment cannot complete: fail, warn or require-review. Default: require-review.'
+    required: false
+    default: ''
+  provider:
+    description: "Decision provider: subq (default) or mock. 'mock' is for testing only and is labeled as such in every report."
+    required: false
+    default: subq
+  timeout-seconds:
+    description: Timeout for a single SubQ request.
+    required: false
+    default: '60'
+  gitleaks-report:
+    description: Path to a Gitleaks JSON report produced by a trusted earlier step.
+    required: false
+    default: ''
+  checkov-report:
+    description: Path to a Checkov JSON report produced by a trusted earlier step.
+    required: false
+    default: ''
+  sarif-files:
+    description: Newline- or comma-separated SARIF file paths or globs (CodeQL, Semgrep, Trivy, ...).
+    required: false
+    default: ''
+  dependency-report:
+    description: Path to `npm audit --json` output produced by a trusted earlier step.
+    required: false
+    default: ''
+
+outputs:
+  decision:
+    description: 'Final decision: pass, review_required, blocked or inconclusive.'
+  effective-risk-level:
+    description: 'Effective risk level (low, medium, high, critical): the higher of the AI and deterministic levels.'
+  ai-risk-score:
+    description: AI-proposed risk score 0-100 (empty if the AI assessment did not complete).
+  ai-risk-level:
+    description: AI-proposed risk level (empty if the AI assessment did not complete).
+  assessment-status:
+    description: 'AI assessment status: completed, not_required, skipped or failed.'
+  findings-count:
+    description: Number of deterministic findings in changed files.
+  requires-review:
+    description: Whether policy requires human review.
+  context-complete:
+    description: false when the diff or context was truncated.
+  check-run-id:
+    description: ID of the created check run, if any.
+  comment-id:
+    description: ID of the PR report comment, if any.
+  report-path:
+    description: Path to a JSON report in RUNNER_TEMP.
+
+runs:
+  using: node24
+  main: dist/index.js

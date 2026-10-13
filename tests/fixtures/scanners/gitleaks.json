@@ -1,0 +1,16 @@
+[
+  {
+    "Description": "AWS Access Key",
+    "StartLine": 3,
+    "EndLine": 3,
+    "StartColumn": 10,
+    "EndColumn": 30,
+    "Match": "aws_access_key_id = AKIAIOSFODNN7EXAMPLE",
+    "Secret": "AKIAIOSFODNN7EXAMPLE",
+    "File": "infrastructure/prod/main.tf",
+    "Commit": "",
+    "Entropy": 3.6,
+    "RuleID": "aws-access-token",
+    "Fingerprint": "infrastructure/prod/main.tf:aws-access-token:3"
+  }
+]

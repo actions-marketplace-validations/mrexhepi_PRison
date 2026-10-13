@@ -1,0 +1,23 @@
+# Minimal setup: AI + deterministic assessment, report as a GitHub Check, report-only.
+# Requires the repository secret SUBQ_API_KEY (Settings -> Secrets and variables -> Actions).
+name: SubQ PR Risk Assessment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read # read PR files and policy config through the API
+  checks: write # publish the "SubQ PR Risk Assessment" check run
+  pull-requests: read
+
+jobs:
+  risk-assessment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # No checkout needed: the Action reads the PR through the GitHub API.
+      - name: Assess pull request risk
+        uses: mrexhepi/PRison@v1
+        with:
+          subq-api-key: ${{ secrets.SUBQ_API_KEY }}

@@ -1,0 +1,44 @@
+# Security-focused assessment consuming Gitleaks JSON and Semgrep SARIF produced by
+# pinned container images in the same job. Neither tool executes PR code.
+name: SubQ PR Risk Assessment (Security)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  risk-assessment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Gitleaks (findings outside the PR diff are ignored by the Action)
+        run: |
+          mkdir -p reports
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir /repo --redact --exit-code 0 --report-format json --report-path /repo/reports/gitleaks.json
+
+      - name: Semgrep (SARIF)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            semgrep/semgrep@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3 \
+            semgrep scan --config p/default --sarif --output reports/semgrep.sarif --metrics off || true
+
+      - name: Assess pull request risk
+        uses: mrexhepi/PRison@v1
+        with:
+          subq-api-key: ${{ secrets.SUBQ_API_KEY }}
+          mode: security
+          fail-on: critical
+          report: both
+          gitleaks-report: reports/gitleaks.json
+          sarif-files: reports/*.sarif

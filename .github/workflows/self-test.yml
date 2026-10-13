@@ -1,0 +1,95 @@
+name: Self-test
+
+# Runs the committed Action (dist/index.js) against this repository's own pull requests,
+# without installing dependencies, to prove consumers need no build step.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mock:
+    name: Action with mock provider
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run action (mock provider, report only)
+        id: scan
+        uses: ./
+        with:
+          provider: mock
+          report: check
+          dry-run: true
+      - name: Assert outputs
+        env:
+          DECISION: ${{ steps.scan.outputs.decision }}
+          STATUS: ${{ steps.scan.outputs.assessment-status }}
+          LEVEL: ${{ steps.scan.outputs.effective-risk-level }}
+        run: |
+          echo "decision=$DECISION status=$STATUS level=$LEVEL"
+          case "$DECISION" in pass|review_required|blocked|inconclusive) ;; *) echo "bad decision"; exit 1 ;; esac
+          case "$STATUS" in completed|not_required|skipped) ;; *) echo "bad status"; exit 1 ;; esac
+          test -n "$LEVEL"
+
+  unsupported-event:
+    name: Unsupported event is skipped safely
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: scan
+        uses: ./
+        with:
+          provider: mock
+      - env:
+          STATUS: ${{ steps.scan.outputs.assessment-status }}
+        run: test "$STATUS" = "skipped"
+
+  real-api-smoke:
+    name: Optional real SubQ smoke test
+    # Only runs for same-repository PRs; secrets are never available to fork PRs.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+    env:
+      HAS_KEY: ${{ secrets.SUBQ_SMOKE_API_KEY != '' }}
+    steps:
+      - name: Skip notice
+        if: env.HAS_KEY != 'true'
+        run: echo "SUBQ_SMOKE_API_KEY not configured; real API smoke test skipped."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HAS_KEY == 'true'
+        with:
+          persist-credentials: false
+      - name: Run action against the real SubQ API
+        if: env.HAS_KEY == 'true'
+        id: scan
+        uses: ./
+        with:
+          subq-api-key: ${{ secrets.SUBQ_SMOKE_API_KEY }}
+          provider-error-policy: fail
+          dry-run: true
+      - name: Assert the AI assessment completed
+        if: env.HAS_KEY == 'true'
+        env:
+          STATUS: ${{ steps.scan.outputs.assessment-status }}
+        run: |
+          echo "assessment-status=$STATUS"
+          case "$STATUS" in completed|not_required) ;; *) exit 1 ;; esac

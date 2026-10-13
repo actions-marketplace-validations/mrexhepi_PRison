@@ -1,0 +1,11 @@
+title = "subq-pr-risk-scanner gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures intentionally contain well-known example credentials (e.g. AWS's documented AKIAIOSFODNN7EXAMPLE) to exercise secret detection."
+paths = [
+  '''^tests/''',
+  '''^dist/index\.js$''',
+]
