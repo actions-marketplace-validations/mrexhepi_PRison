@@ -3,6 +3,8 @@ name: Self-test
 # Runs the committed Action (dist/index.js) against this repository's own pull requests,
 # without installing dependencies, to prove consumers need no build step.
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -43,8 +45,8 @@ jobs:
           test -n "$LEVEL"
 
   unsupported-event:
-    name: Unsupported event is skipped safely
-    if: github.event_name == 'workflow_dispatch'
+    name: Action loads and skips non-PR events safely
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

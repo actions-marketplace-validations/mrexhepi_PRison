@@ -1,6 +1,6 @@
 {
   "name": "subq-pr-risk-scanner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "GitHub Action that assesses pull request risk with SubQ Snap decisions, deterministic rules and scanner findings.",
   "type": "module",

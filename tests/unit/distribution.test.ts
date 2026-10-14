@@ -11,12 +11,20 @@ const read = (p: string) => readFileSync(join(root, p), 'utf8');
 describe('distribution metadata', () => {
   const action = parse(read('action.yml')) as {
     runs: { using: string; main: string };
-    inputs: Record<string, { default?: string }>;
-    outputs: Record<string, unknown>;
+    inputs: Record<string, { description?: string; default?: string }>;
+    outputs: Record<string, { description?: string }>;
   };
 
   it('is a node24 JavaScript action pointing at the bundle', () => {
     expect(action.runs).toEqual({ using: 'node24', main: 'dist/index.js' });
+  });
+
+  it('uses expressions only in the github-token default', () => {
+    // The runner evaluates `${{ }}` anywhere in action.yml, and `secrets` is not available
+    // there, so an expression in a description makes the whole action fail to load.
+    const raw = read('action.yml');
+    expect([...raw.matchAll(/\$\{\{[^}]*\}\}/g)].map((m) => m[0])).toEqual(['${{ github.token }}']);
+    expect(action.inputs['github-token']?.default).toBe('${{ github.token }}');
   });
 
   it('declares exactly the inputs the code reads', () => {

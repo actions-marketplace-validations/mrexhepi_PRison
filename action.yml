@@ -9,7 +9,7 @@ branding:
 # Effective defaults are listed in each description and in the README.
 inputs:
   subq-api-key:
-    description: Your SubQ API key. Pass it from a secret, e.g. `${{ secrets.SUBQ_API_KEY }}`. Required for real assessments.
+    description: Your SubQ API key. Pass it from a repository secret named SUBQ_API_KEY (see README). Required for real assessments.
     required: false
     default: ''
   github-token:
