@@ -36,12 +36,13 @@ GitHub Check with evidence, recommended actions and an enforceable decision.
 12. [SARIF and scanner integration](#sarif-and-scanner-integration)
 13. [Permissions and forked pull requests](#permissions-and-forked-pull-requests)
 14. [Privacy and data handling](#privacy-and-data-handling)
-15. [Troubleshooting](#troubleshooting)
-16. [Local development and testing](#local-development-and-testing)
-17. [Build and release](#build-and-release)
-18. [Version pinning](#version-pinning)
-19. [Contributing](#contributing)
-20. [License](#license)
+15. [Trust model](#trust-model)
+16. [Troubleshooting](#troubleshooting)
+17. [Local development and testing](#local-development-and-testing)
+18. [Build and release](#build-and-release)
+19. [Version pinning](#version-pinning)
+20. [Contributing](#contributing)
+21. [License](#license)
 
 ## Overview
 
@@ -433,6 +434,44 @@ repositories.
 Cost: SubQ Snap bills input tokens only ($0.05 per 1M input tokens per SubQ's Models page
 on 2026-10-13). A 100K-token assessment costs about $0.005. The report and the JSON output
 include the token count and estimated cost.
+
+## Trust model
+
+Adding this Action to a workflow means trusting three parties:
+
+| Party          | What you trust it with                                                        |
+| -------------- | ----------------------------------------------------------------------------- |
+| The maintainer | The code that runs is whatever the ref you use points to.                     |
+| GitHub         | Runs the Action and stores your secrets.                                      |
+| SubQ           | Receives redacted PR content; retains it indefinitely unless you request ZDR. |
+
+What the Action can access in your run:
+
+- **SubQ key:** sent only in the `Authorization` header to `https://api.subq.ai`. The API
+  host is fixed in code and cannot be changed by inputs or repository config.
+- **GitHub token:** reads the PR and repository files, writes the Check Run and (optionally)
+  one PR comment.
+- **PR content:** the diff, metadata and selected files, with secrets redacted and sensitive
+  files excluded (see [Privacy and data handling](#privacy-and-data-handling)).
+
+The Action sends no telemetry, contacts no host other than the GitHub API and SubQ, and
+never executes code from the pull request.
+
+To reduce what you need to trust:
+
+- **Pin to a full commit SHA** instead of `@v1`. A tag can be moved; a SHA cannot. Release
+  tags (`v1.0.1` and later) are protected from being moved or deleted, but `v1` moves by
+  design.
+  ```yaml
+  uses: mrexhepi/PRison@28f05bb3b9cbc1335eb31e4a5d7679eeaa41400e # v1.0.1
+  ```
+- **Grant minimal permissions:** `contents: read`, `checks: write`, and `pull-requests: write`
+  only if you enable comments.
+- **Use a dedicated SubQ key** for this Action so it can be revoked on its own.
+- **Request zero data retention** from SubQ before enabling the Action on private
+  repositories.
+- **Review `dist/index.js` at the pinned SHA** if you need to audit exactly what runs; CI
+  verifies it matches a fresh build of `src/`.
 
 ## Troubleshooting
 
