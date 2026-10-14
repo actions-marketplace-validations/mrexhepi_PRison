@@ -11,7 +11,7 @@ GitHub Check with evidence, recommended actions and an enforceable decision.
     subq-api-key: ${{ secrets.SUBQ_API_KEY }}
 ```
 
-> **Status:** v1.0.0 release candidate. The SubQ integration follows the published SubQ
+> **Status:** v1, early release. The SubQ integration follows the published SubQ
 > Decisions API contract, but it has **not yet been exercised against the live SubQ API**
 > by this project (no API key was available during development). All tests use a fake of
 > the documented contract. See [Known limitations](#known-limitations).
@@ -511,7 +511,7 @@ the agreement and choose categories (Security, Code quality). The action name in
 ## Version pinning
 
 - `@v1`: receives compatible fixes and features. Convenient, trusts the maintainer.
-- `@v1.0.0`: a fixed release tag.
+- `@v1.0.1`: a fixed release tag (do not use v1.0.0; it fails to load).
 - `@<full commit SHA>`: immutable and recommended for security-sensitive repositories.
   Use Dependabot (`package-ecosystem: github-actions`) to receive update PRs.
 
