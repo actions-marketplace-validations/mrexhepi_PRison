@@ -15,6 +15,7 @@ import {
 import {
   buildAnnotations,
   checkConclusion,
+  aiVerdict,
   checkTitle,
   renderMarkdown,
   type ReportModel,
@@ -156,7 +157,7 @@ async function assess(
       : (await api.getPullRequest(ref.owner, ref.repo, ref.number)).base.sha;
   const settings = await loadSettings(api, ref, baseSha, inputs, core);
   core.info(
-    `Mode ${settings.mode}, fail-on ${settings.failOn}, report ${settings.report}, dry-run ${settings.dryRun}, provider ${inputs.provider}.`,
+    `Mode ${settings.mode}, ai-mode ${settings.aiMode}, fail-on ${settings.failOn}, report ${settings.report}, dry-run ${settings.dryRun}, provider ${inputs.provider}.`,
   );
 
   const pr = await collectPullRequest(api, ref, {
@@ -280,9 +281,7 @@ async function assess(
     try {
       const result = await provider(inputs).assess(assessmentInput);
       ai = { status: 'completed', result };
-      core.info(
-        `AI assessment: ${result.riskLevel} (${result.riskScore}/100) in ${result.latencyMs}ms.`,
-      );
+      core.info(`AI assessment: ${aiVerdict(result, settings.aiMode)} in ${result.latencyMs}ms.`);
     } catch (err) {
       const msg =
         err instanceof ProviderError
@@ -318,6 +317,7 @@ async function assess(
     scannerStatuses: scan.statuses,
     completeness,
     includeAiExplanation: settings.includeAiExplanation,
+    aiMode: settings.aiMode,
     dryRun: settings.dryRun,
     outsideDiffFindings: scan.outsideDiff,
     ...(runUrl ? { runUrl } : {}),
@@ -358,6 +358,8 @@ async function assess(
 
   // ---- Outputs
   core.setOutput('decision', outcome.decision);
+  core.setOutput('go', outcome.go);
+  core.setOutput('ai-uncertain', ai.result ? ai.result.uncertain : '');
   core.setOutput('effective-risk-level', outcome.effectiveLevel);
   core.setOutput('ai-risk-score', ai.result ? String(ai.result.riskScore) : '');
   core.setOutput('ai-risk-level', ai.result?.riskLevel ?? '');
@@ -370,6 +372,8 @@ async function assess(
     const reportPath = join(deps.reportDir, `subq-pr-risk-report-${meta.number}.json`);
     const json = {
       decision: outcome.decision,
+      go: outcome.go,
+      aiMode: settings.aiMode,
       effectiveRiskLevel: outcome.effectiveLevel,
       deterministicRiskLevel: outcome.deterministicLevel,
       ai: { status: ai.status, provider: inputs.provider, error: ai.error, result: ai.result },

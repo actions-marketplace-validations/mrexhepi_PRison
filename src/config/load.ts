@@ -67,6 +67,7 @@ export function resolveSettings(inputs: ActionInputs, repo: RepoConfig | undefin
   return {
     mode: inputs.mode ?? repo?.mode ?? d.mode,
     failOn: inputs.failOn ?? repo?.risk?.fail_on ?? d.failOn,
+    aiMode: inputs.aiMode ?? repo?.risk?.ai_mode ?? d.aiMode,
     report: inputs.report ?? repo?.report?.destination ?? d.report,
     maxFiles: inputs.maxFiles ?? repo?.analysis?.max_files ?? d.maxFiles,
     maxDiffLines: inputs.maxDiffLines ?? repo?.analysis?.max_diff_lines ?? d.maxDiffLines,

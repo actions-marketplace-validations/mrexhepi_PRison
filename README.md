@@ -216,6 +216,7 @@ examples live in [`examples/`](examples/).
 | `config`                | `.github/subq-pr-risk.yml` | Policy file path, read from the PR base commit. Missing default file is fine; a missing explicit path is an error. |
 | `mode`                  | `general`                  | `general`, `terraform`, `security` or `dependencies`. Changes prioritization and context selection.                |
 | `fail-on`               | `never`                    | `never`, `medium`, `high` or `critical`. Fail the step when the effective risk reaches this level.                 |
+| `ai-mode`               | `decide`                   | `decide`: SubQ can raise risk and request review. `advisory`: SubQ is reported only; rules and scanners decide.    |
 | `report`                | `check`                    | `check`, `comment` or `both`. A job summary is always written.                                                     |
 | `max-files`             | `200`                      | Maximum changed files to retrieve (1-3000).                                                                        |
 | `max-diff-lines`        | `12000`                    | Maximum changed lines sent to the model.                                                                           |
@@ -229,7 +230,7 @@ examples live in [`examples/`](examples/).
 | `sarif-files`           | empty                      | SARIF file paths or globs, newline or comma separated.                                                             |
 | `dependency-report`     | empty                      | `npm audit --json` output path.                                                                                    |
 
-Defaults shown for `mode`, `fail-on`, `report`, `max-files`, `max-diff-lines`,
+Defaults shown for `mode`, `fail-on`, `ai-mode`, `report`, `max-files`, `max-diff-lines`,
 `context-files` and `provider-error-policy` are applied by the Action (the `action.yml`
 defaults are empty) so the repository configuration can supply them.
 
@@ -241,9 +242,11 @@ built-in default. Nothing returned by the model can change any setting.
 | Output                       | Description                                                                       |
 | ---------------------------- | --------------------------------------------------------------------------------- |
 | `decision`                   | `pass`, `review_required`, `blocked` or `inconclusive`                            |
-| `effective-risk-level`       | `low`, `medium`, `high`, `critical` (higher of AI and deterministic levels)       |
-| `ai-risk-score`              | AI-proposed score 0-100, empty if the AI assessment did not complete              |
-| `ai-risk-level`              | AI-proposed level, empty if not completed                                         |
+| `go`                         | GO / NO GO: `true` only when `decision` is `pass`                                 |
+| `effective-risk-level`       | `low`, `medium`, `high`, `critical` (see Effective risk below)                    |
+| `ai-risk-level`              | SubQ's most likely overall level, empty if not completed                          |
+| `ai-uncertain`               | `true` when no level reached 50% probability                                      |
+| `ai-risk-score`              | SubQ's blended score rescaled to 0-100; prefer `ai-risk-level`                    |
 | `assessment-status`          | `completed`, `not_required`, `skipped` or `failed`                                |
 | `findings-count`             | Deterministic findings in changed files                                           |
 | `requires-review`            | `true` when policy requires human review                                          |
@@ -288,17 +291,20 @@ file is evaluated with the old policy; the new policy applies after merge.
 
 ## Risk score and policy semantics
 
-**AI score.** SubQ Snap answers a 4-level `score` question (low, medium, high, critical).
-Its probability-weighted answer (0 to 3) is scaled to 0-100. Initial reporting bands:
+**AI verdict.** SubQ Snap answers a 4-level `score` question (low, medium, high,
+critical) with a probability for each level. The report shows all four probabilities, and
+the AI level is the **most likely** one (ties go to the higher level):
 
-| Score  | Level    |
-| ------ | -------- |
-| 0-19   | Low      |
-| 20-39  | Medium   |
-| 40-69  | High     |
-| 70-100 | Critical |
+| Low | Medium  | High | Critical |
+| --- | ------- | ---- | -------- |
+| 10% | **45%** | 40%  | 5%       |
 
-These are presentation defaults, **not** calibrated incident probabilities.
+If no level reaches **50%**, the answer is marked **uncertain** and never raises risk. SubQ
+also returns a blended score and a `confidence` value; both are shown and kept in the JSON
+report (with the raw answer) but do not drive the decision. If a response ever lacks
+per-level probabilities, the blended score is mapped to the nearest level (0-16 low, 17-49
+medium, 50-83 high, 84-100 critical). These are SubQ's judgments, **not** calibrated
+incident probabilities.
 
 **Deterministic findings** carry an evidence status set by the scanner, never by the model:
 
@@ -309,18 +315,38 @@ These are presentation defaults, **not** calibrated incident probabilities.
 
 The model's per-finding probability is displayed next to the finding as context only.
 
-**Effective risk** = the higher of the AI level and the highest deterministic severity.
-The model can raise risk; it can never lower it.
+**Effective risk** = the highest deterministic severity, raised to the AI level only when
+`ai-mode` is `decide` and the AI answer is not uncertain. The model can raise risk; it can
+never lower it. With `ai-mode: advisory`, SubQ's verdict, review flag and failures are
+reported but do not affect the decision.
+
+**GO / NO GO.** The `go` output and the Check title (`GO - PASS: ...` or `NO GO - ...`)
+give a binary result: GO only when the decision is `pass`. For a GO / NO GO gate decided by
+objective evidence (secrets, scanner findings, protected rules) rather than by the model:
+
+```yaml
+# .github/subq-pr-risk.yml
+version: 1
+risk:
+  ai_mode: advisory # SubQ explains; rules and scanners decide
+  fail_on: high # high or critical deterministic findings: NO GO
+  require_review: [] # no "review required" middle state
+policies:
+  protected_paths: [] # or keep paths that must always get a human
+```
+
+Then mark the Check as required in branch protection so NO GO blocks merging.
 
 **Decision**, evaluated in order:
 
 1. `blocked` if a `confirmed` critical finding exists and `critical_findings_always_fail` is
    true, or if the effective risk reaches `fail-on`.
-2. If the AI assessment `failed` or was `skipped`: `inconclusive` (unless step 1 already
+2. If the AI assessment `failed` or was `skipped` (in `decide` mode): `inconclusive` (unless step 1 already
    blocked). `provider-error-policy` then decides: `fail` fails the step, `warn` continues,
    `require-review` (default) continues and marks review as required.
 3. `review_required` if the effective level is in `require_review`, a protected path
-   changed, a `require_review_for` tag fired, SubQ indicated close human review, a scanner
+   changed, a `require_review_for` tag fired, SubQ indicated close human review (`decide`
+   mode only), a scanner
    artifact was invalid or a required one was missing, or the analysis was truncated.
 4. Otherwise `pass`.
 

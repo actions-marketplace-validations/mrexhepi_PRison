@@ -44,6 +44,10 @@ inputs:
     description: 'Maximum additional repository files sent as context. Default: 10.'
     required: false
     default: ''
+  ai-mode:
+    description: 'How SubQ Snap affects the decision: decide (it can raise risk and request review) or advisory (reported only; rules and scanners decide). Default: decide.'
+    required: false
+    default: ''
   dry-run:
     description: Report the decision without failing the step on risk. Operational errors still fail.
     required: false
@@ -80,12 +84,16 @@ inputs:
 outputs:
   decision:
     description: 'Final decision: pass, review_required, blocked or inconclusive.'
+  go:
+    description: "GO / NO GO: 'true' only when the decision is pass, otherwise 'false'."
   effective-risk-level:
-    description: 'Effective risk level (low, medium, high, critical): the higher of the AI and deterministic levels.'
+    description: 'Effective risk level (low, medium, high, critical): the deterministic level, raised by the AI level only in ai-mode decide and only when the AI answer is not uncertain.'
   ai-risk-score:
-    description: AI-proposed risk score 0-100 (empty if the AI assessment did not complete).
+    description: SubQ's probability-weighted score rescaled to 0-100 (empty if the AI assessment did not complete). Prefer ai-risk-level.
   ai-risk-level:
-    description: AI-proposed risk level (empty if the AI assessment did not complete).
+    description: SubQ's most likely overall risk level (empty if the AI assessment did not complete).
+  ai-uncertain:
+    description: "'true' when no overall level reached 50% probability; such answers never raise risk."
   assessment-status:
     description: 'AI assessment status: completed, not_required, skipped or failed.'
   findings-count:

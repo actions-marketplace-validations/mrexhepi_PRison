@@ -7,6 +7,9 @@ export type FailOn = (typeof FAIL_ON)[number];
 export const REPORT_DESTINATIONS = ['check', 'comment', 'both'] as const;
 export type ReportDestination = (typeof REPORT_DESTINATIONS)[number];
 
+export const AI_MODES = ['decide', 'advisory'] as const;
+export type AiMode = (typeof AI_MODES)[number];
+
 export const PROVIDER_ERROR_POLICIES = ['fail', 'warn', 'require-review'] as const;
 export type ProviderErrorPolicy = (typeof PROVIDER_ERROR_POLICIES)[number];
 
@@ -39,6 +42,7 @@ export const repoConfigSchema = z.strictObject({
     .strictObject({
       fail_on: z.enum(FAIL_ON).optional(),
       require_review: z.array(z.enum(RISK_LEVELS)).max(4).optional(),
+      ai_mode: z.enum(AI_MODES).optional(),
     })
     .optional(),
   policies: z
@@ -73,6 +77,8 @@ export type RepoConfig = z.infer<typeof repoConfigSchema>;
 export interface Settings {
   mode: (typeof MODES)[number];
   failOn: FailOn;
+  /** decide: the AI can raise risk and request review. advisory: the AI is reported only. */
+  aiMode: AiMode;
   report: ReportDestination;
   maxFiles: number;
   maxDiffLines: number;
@@ -95,6 +101,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Omit<Settings, 'dryRun'> = {
   mode: 'general',
   failOn: 'never',
+  aiMode: 'decide',
   report: 'check',
   maxFiles: 200,
   maxDiffLines: 12_000,

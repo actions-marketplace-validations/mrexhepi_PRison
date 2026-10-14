@@ -169,10 +169,20 @@ export interface CategoryJudgment {
 export interface AssessmentResult {
   provider: string;
   model: string;
+  /** The model's most likely overall level (argmax of levelProbabilities when present). */
   riskLevel: RiskLevel;
-  /** 0-100, derived from the model's probability-weighted score answer. */
+  /** 0-100, the model's probability-weighted score rescaled. Kept for output compatibility. */
   riskScore: number;
+  /** Probability the model assigned to each overall level, when it returned them. */
+  levelProbabilities?: Record<RiskLevel, number>;
+  /** Probability of riskLevel. */
+  levelProbability?: number;
+  /** True when no overall level reached UNCERTAIN_BELOW; such answers never raise risk. */
+  uncertain: boolean;
+  /** The model's own confidence value for the overall answer (not defined further by SubQ). */
   confidence: number;
+  /** The raw overall_risk answer, for audit in the JSON report. */
+  rawOverall?: { score: number; probabilities: Record<string, number>; confidence: number };
   summary: string;
   categories: CategoryJudgment[];
   findingJudgments: FindingJudgment[];

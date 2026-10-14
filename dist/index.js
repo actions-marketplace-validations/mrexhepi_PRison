@@ -53597,6 +53597,7 @@ function date4(params) {
 // src/config/schema.ts
 var FAIL_ON = ["never", "medium", "high", "critical"];
 var REPORT_DESTINATIONS = ["check", "comment", "both"];
+var AI_MODES = ["decide", "advisory"];
 var PROVIDER_ERROR_POLICIES = ["fail", "warn", "require-review"];
 var SCANNER_NAMES = ["secrets", "terraform", "sarif", "dependencies"];
 var globPattern = external_exports.string().min(1).max(500).refine((g) => !g.includes("\0"), "must not contain NUL bytes");
@@ -53612,7 +53613,8 @@ var repoConfigSchema = external_exports.strictObject({
   }).optional(),
   risk: external_exports.strictObject({
     fail_on: external_exports.enum(FAIL_ON).optional(),
-    require_review: external_exports.array(external_exports.enum(RISK_LEVELS)).max(4).optional()
+    require_review: external_exports.array(external_exports.enum(RISK_LEVELS)).max(4).optional(),
+    ai_mode: external_exports.enum(AI_MODES).optional()
   }).optional(),
   policies: external_exports.strictObject({
     protected_paths: external_exports.array(globPattern).max(200).optional(),
@@ -53636,6 +53638,7 @@ var repoConfigSchema = external_exports.strictObject({
 var DEFAULT_SETTINGS = {
   mode: "general",
   failOn: "never",
+  aiMode: "decide",
   report: "check",
   maxFiles: 200,
   maxDiffLines: 12e3,
@@ -53705,6 +53708,7 @@ function parseInputs(read) {
     configPathExplicit: configRaw !== "" && configRaw !== DEFAULT_CONFIG_PATH,
     mode: oneOf("mode", read("mode"), MODES),
     failOn: oneOf("fail-on", read("fail-on"), FAIL_ON),
+    aiMode: oneOf("ai-mode", read("ai-mode"), AI_MODES),
     report: oneOf("report", read("report"), REPORT_DESTINATIONS),
     maxFiles: int2("max-files", read("max-files"), 1, 3e3),
     maxDiffLines: int2("max-diff-lines", read("max-diff-lines"), 1, 2e5),
@@ -53774,6 +53778,7 @@ function resolveSettings(inputs, repo) {
   return {
     mode: inputs.mode ?? repo?.mode ?? d.mode,
     failOn: inputs.failOn ?? repo?.risk?.fail_on ?? d.failOn,
+    aiMode: inputs.aiMode ?? repo?.risk?.ai_mode ?? d.aiMode,
     report: inputs.report ?? repo?.report?.destination ?? d.report,
     maxFiles: inputs.maxFiles ?? repo?.analysis?.max_files ?? d.maxFiles,
     maxDiffLines: inputs.maxDiffLines ?? repo?.analysis?.max_diff_lines ?? d.maxDiffLines,
@@ -54503,7 +54508,7 @@ function renderMarkdown(m) {
   }
   const effectiveNote = r ? "" : m.ai.status === "not_required" ? " (deterministic only; AI assessment not required)" : " (deterministic findings only; AI assessment unavailable)";
   out.push(`**Effective risk:** ${o.effectiveLevel.toUpperCase()}${effectiveNote}  `);
-  out.push(`**AI score:** ${r ? `${r.riskScore}/100 (${r.riskLevel})` : "n/a"}  `);
+  out.push(`**AI verdict:** ${r ? aiVerdict(r, m.aiMode) : "n/a"}  `);
   out.push(
     `**Deterministic findings:** ${m.findings.length}${o.deterministicLevel !== "none" ? ` (highest: ${o.deterministicLevel})` : ""}  `
   );
@@ -54535,6 +54540,19 @@ function renderMarkdown(m) {
         ""
       );
     }
+  }
+  if (r?.levelProbabilities) {
+    const p = r.levelProbabilities;
+    out.push(
+      "## SubQ Snap overall answer",
+      "",
+      "| Low | Medium | High | Critical |",
+      "| --- | --- | --- | --- |",
+      `| ${RISK_LEVELS.map((l) => l === r.riskLevel ? `**${pct(p[l])}**` : pct(p[l])).join(" | ")} |`,
+      "",
+      `SubQ confidence: ${pct(r.confidence)}.${r.uncertain ? " No level reached 50%, so the answer is treated as uncertain." : ""}`,
+      ""
+    );
   }
   if (r && m.includeAiExplanation && r.categories.length) {
     out.push(
@@ -54582,7 +54600,7 @@ function renderMarkdown(m) {
   out.push(
     "",
     "---",
-    "_Scores are model judgments and initial policy bands, not calibrated incident probabilities. Findings are produced by deterministic rules and scanners; the model can raise but never lower deterministic risk._"
+    "_AI probabilities are SubQ Snap judgments, not calibrated incident rates. Findings come from deterministic rules and scanners; the model can raise but never lower deterministic risk, and uncertain or advisory answers never raise it._"
   );
   if (m.runUrl) out.push("", `[Workflow run](${encodeURI(m.runUrl)})`);
   let text = out.join("\n");
@@ -54591,10 +54609,21 @@ function renderMarkdown(m) {
   }
   return text;
 }
+var pct = (n) => `${Math.round(n * 100)}%`;
+function aiVerdict(r, aiMode = "decide") {
+  const level = r.riskLevel.toUpperCase();
+  const base = r.levelProbability !== void 0 ? `${level} (${pct(r.levelProbability)})` : level;
+  const notes = [
+    ...r.uncertain ? ["uncertain"] : [],
+    ...aiMode === "advisory" ? ["advisory"] : []
+  ];
+  return notes.length ? `${base}, ${notes.join(", ")}` : base;
+}
 function checkTitle(m) {
   const o = m.outcome;
-  const ai = m.ai.status === "completed" && m.ai.result ? `, AI ${m.ai.result.riskScore}/100` : ", AI n/a";
-  return `${DECISION_LABEL[o.decision]}: ${o.effectiveLevel} risk${ai}${m.dryRun ? " (dry-run)" : ""}`;
+  const ai = m.ai.status === "completed" && m.ai.result ? `, AI ${aiVerdict(m.ai.result, m.aiMode)}` : ", AI n/a";
+  const go = o.go ? "GO" : "NO GO";
+  return `${go} - ${DECISION_LABEL[o.decision]}: ${o.effectiveLevel} risk${ai}${m.dryRun ? " (dry-run)" : ""}`;
 }
 function buildAnnotations(findings, annotatableLines) {
   const out = [];
@@ -54671,14 +54700,15 @@ ${redactForOutput(args.body)}`;
 var import_picomatch = __toESM(require_picomatch2(), 1);
 
 // src/risk/scoring.ts
+var UNCERTAIN_BELOW = 0.5;
 var LEVEL_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
 function scoreToLevel(score) {
   if (!Number.isFinite(score) || score < 0 || score > 100) {
     throw new RangeError("risk score must be between 0 and 100");
   }
-  if (score >= 70) return "critical";
-  if (score >= 40) return "high";
-  if (score >= 20) return "medium";
+  if (score >= 84) return "critical";
+  if (score >= 50) return "high";
+  if (score >= 17) return "medium";
   return "low";
 }
 function severityToLevel(s) {
@@ -54710,10 +54740,21 @@ function evaluatePolicy(input2) {
   const detLevels = counted.map((f) => severityToLevel(f.severity)).filter((l) => !!l);
   const deterministicLevel = detLevels.length ? maxLevel(...detLevels) : "none";
   const aiResult = ai.status === "completed" ? ai.result : void 0;
+  const advisory = settings.aiMode === "advisory";
+  const aiRaises = !advisory && aiResult !== void 0 && !aiResult.uncertain;
   const effectiveLevel = maxLevel(
     deterministicLevel === "none" ? void 0 : deterministicLevel,
-    aiResult?.riskLevel
+    aiRaises ? aiResult.riskLevel : void 0
   );
+  if (advisory) {
+    reasons.push(
+      "ai_mode 'advisory': SubQ Snap is reported only and does not affect the decision."
+    );
+  } else if (aiResult?.uncertain) {
+    reasons.push(
+      `SubQ Snap's answer was uncertain (most likely ${aiResult.riskLevel} at ${Math.round((aiResult.levelProbability ?? 0) * 100)}%), so it was not used to raise risk.`
+    );
+  }
   const confirmedCritical = findings.filter(
     (f) => f.status === "confirmed" && f.severity === "critical"
   );
@@ -54747,7 +54788,7 @@ function evaluatePolicy(input2) {
     review = true;
     reasons.push(`Policy requires review for: ${triggeredTags.join(", ")}.`);
   }
-  if (aiResult?.requiresHumanReview) {
+  if (!advisory && aiResult?.requiresHumanReview) {
     review = true;
     reasons.push("SubQ Snap indicated that close human review is needed.");
   }
@@ -54768,7 +54809,12 @@ function evaluatePolicy(input2) {
   let fail = false;
   let failReason;
   let dryRunSuppressed = false;
-  if (ai.status === "failed" || ai.status === "skipped") {
+  if (advisory && (ai.status === "failed" || ai.status === "skipped")) {
+    reasons.push(
+      `AI assessment ${ai.status}${ai.error ? `: ${ai.error}` : ""} (advisory; no effect).`
+    );
+    decision = blocked ? "blocked" : review ? "review_required" : "pass";
+  } else if (ai.status === "failed" || ai.status === "skipped") {
     const what = ai.status === "skipped" ? "skipped" : "failed";
     reasons.push(`AI assessment ${what}${ai.error ? `: ${ai.error}` : ""}.`);
     if (settings.providerErrorPolicy === "require-review") {
@@ -54807,7 +54853,8 @@ function evaluatePolicy(input2) {
     triggeredTags,
     fail,
     ...failReason ? { failReason } : {},
-    dryRunSuppressed
+    dryRunSuppressed,
+    go: decision === "pass"
   };
 }
 
@@ -55843,6 +55890,10 @@ function validateAnswers(questions, response) {
     if (a.type === "score" && q.type === "score") {
       const max = q.criteria.length - 1;
       if (a.score < 0 || a.score > max) throw new Error(`answer '${name}' score is out of range`);
+      for (const k of Object.keys(a.probabilities)) {
+        if (!/^\d+$/.test(k) || Number(k) > max)
+          throw new Error(`answer '${name}' has a probability for an unknown level`);
+      }
     }
   }
 }
@@ -56101,16 +56152,41 @@ function interpretAnswers(built, response, meta3) {
     const ans = a[q];
     return ans?.type === "noul" ? [{ findingId, probability: ans.noul }] : [];
   });
-  const riskLevel = scoreToLevel(riskScore);
+  const probs = RISK_LEVELS.map((_, i) => overall.probabilities[String(i)]);
+  const haveProbs = levels === RISK_LEVELS.length && probs.every((p) => typeof p === "number");
+  let riskLevel = scoreToLevel(riskScore);
+  let levelProbabilities;
+  let levelProbability;
+  if (haveProbs) {
+    levelProbabilities = Object.fromEntries(
+      RISK_LEVELS.map((l, i) => [l, probs[i]])
+    );
+    let best = 0;
+    probs.forEach((p, i) => {
+      if (p >= probs[best]) best = i;
+    });
+    riskLevel = RISK_LEVELS[best];
+    levelProbability = probs[best];
+  }
+  const uncertain = levelProbability !== void 0 && levelProbability < UNCERTAIN_BELOW;
+  const pct2 = (n) => `${Math.round(n * 100)}%`;
+  const verdict = levelProbabilities ? `SubQ Snap's most likely overall risk is ${riskLevel.toUpperCase()} (${pct2(levelProbability)}; ` + RISK_LEVELS.map((l) => `${l} ${pct2(levelProbabilities[l])}`).join(", ") + `). ${uncertain ? `No level reached ${pct2(UNCERTAIN_BELOW)}, so this answer is uncertain and is not used to raise risk. ` : ""}` : `SubQ Snap rated merge risk ${riskLevel.toUpperCase()} (${riskScore}/100). `;
   const elevated = categories.filter((c) => c.probability >= 0.5).sort((x, y) => y.probability - x.probability).map((c) => `${c.category} (${Math.round(c.probability * 100)}%)`);
-  const summary2 = `SubQ Snap rated merge risk ${riskLevel.toUpperCase()} (${riskScore}/100, confidence ${Math.round(overall.confidence * 100)}%). ` + (elevated.length ? `Elevated categories: ${elevated.join(", ")}.` : "No risk category exceeded 50% probability.") + ` Probability that close human review is needed: ${Math.round(humanReviewProbability * 100)}%.`;
+  const summary2 = verdict + `SubQ confidence ${pct2(overall.confidence)}. ` + (elevated.length ? `Elevated categories: ${elevated.join(", ")}.` : "No risk category exceeded 50% probability.") + ` Probability that close human review is needed: ${Math.round(humanReviewProbability * 100)}%.`;
   const inputTokens = response.usage?.input_tokens;
   return {
     provider: meta3.provider,
     model: response.model,
     riskLevel,
     riskScore,
+    ...levelProbabilities ? { levelProbabilities, levelProbability } : {},
+    uncertain,
     confidence: overall.confidence,
+    rawOverall: {
+      score: overall.score,
+      probabilities: overall.probabilities,
+      confidence: overall.confidence
+    },
     summary: summary2,
     categories,
     findingJudgments,
@@ -56423,7 +56499,7 @@ async function assess(deps, inputs, ref) {
   const baseSha = typeof payloadBase === "string" && /^[0-9a-f]{40}$/i.test(payloadBase) ? payloadBase : (await api.getPullRequest(ref.owner, ref.repo, ref.number)).base.sha;
   const settings = await loadSettings(api, ref, baseSha, inputs, core);
   core.info(
-    `Mode ${settings.mode}, fail-on ${settings.failOn}, report ${settings.report}, dry-run ${settings.dryRun}, provider ${inputs.provider}.`
+    `Mode ${settings.mode}, ai-mode ${settings.aiMode}, fail-on ${settings.failOn}, report ${settings.report}, dry-run ${settings.dryRun}, provider ${inputs.provider}.`
   );
   const pr = await collectPullRequest(api, ref, {
     maxFiles: settings.maxFiles,
@@ -56536,9 +56612,7 @@ async function assess(deps, inputs, ref) {
     try {
       const result = await provider(inputs).assess(assessmentInput);
       ai = { status: "completed", result };
-      core.info(
-        `AI assessment: ${result.riskLevel} (${result.riskScore}/100) in ${result.latencyMs}ms.`
-      );
+      core.info(`AI assessment: ${aiVerdict(result, settings.aiMode)} in ${result.latencyMs}ms.`);
     } catch (err) {
       const msg = err instanceof ProviderError ? err.message : `unexpected provider error: ${errorMessage(err)}`;
       ai = { status: "failed", error: redactForOutput(msg) };
@@ -56565,6 +56639,7 @@ async function assess(deps, inputs, ref) {
     scannerStatuses: scan.statuses,
     completeness,
     includeAiExplanation: settings.includeAiExplanation,
+    aiMode: settings.aiMode,
     dryRun: settings.dryRun,
     outsideDiffFindings: scan.outsideDiff,
     ...runUrl ? { runUrl } : {}
@@ -56600,6 +56675,8 @@ async function assess(deps, inputs, ref) {
     if (res.warning) core.warning(res.warning);
   }
   core.setOutput("decision", outcome.decision);
+  core.setOutput("go", outcome.go);
+  core.setOutput("ai-uncertain", ai.result ? ai.result.uncertain : "");
   core.setOutput("effective-risk-level", outcome.effectiveLevel);
   core.setOutput("ai-risk-score", ai.result ? String(ai.result.riskScore) : "");
   core.setOutput("ai-risk-level", ai.result?.riskLevel ?? "");
@@ -56611,6 +56688,8 @@ async function assess(deps, inputs, ref) {
     const reportPath = join2(deps.reportDir, `subq-pr-risk-report-${meta3.number}.json`);
     const json2 = {
       decision: outcome.decision,
+      go: outcome.go,
+      aiMode: settings.aiMode,
       effectiveRiskLevel: outcome.effectiveLevel,
       deterministicRiskLevel: outcome.deterministicLevel,
       ai: { status: ai.status, provider: inputs.provider, error: ai.error, result: ai.result },

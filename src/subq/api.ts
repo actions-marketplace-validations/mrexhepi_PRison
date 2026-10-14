@@ -123,6 +123,10 @@ export function validateAnswers(
     if (a.type === 'score' && q.type === 'score') {
       const max = q.criteria.length - 1;
       if (a.score < 0 || a.score > max) throw new Error(`answer '${name}' score is out of range`);
+      for (const k of Object.keys(a.probabilities)) {
+        if (!/^\d+$/.test(k) || Number(k) > max)
+          throw new Error(`answer '${name}' has a probability for an unknown level`);
+      }
     }
   }
 }

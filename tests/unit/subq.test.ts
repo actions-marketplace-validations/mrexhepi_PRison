@@ -250,6 +250,49 @@ describe('SubQClient', () => {
   });
 });
 
+describe('interpreting the overall answer', () => {
+  const answer = (probabilities: Record<string, number>, score: number) =>
+    fakeSubQ({
+      mutate: (b: Record<string, unknown>) => {
+        const o = (b.answers as Record<string, Record<string, unknown>>).overall_risk!;
+        o.score = score;
+        o.probabilities = probabilities;
+        o.confidence = 0.47;
+      },
+    });
+
+  it('uses the most likely level, not the blended score', async () => {
+    const r = await subqProvider(answer({ '0': 0.1, '1': 0.45, '2': 0.4, '3': 0.05 }, 1.4)).assess(
+      input(),
+    );
+    expect(r).toMatchObject({
+      riskLevel: 'medium',
+      levelProbability: 0.45,
+      uncertain: true,
+      levelProbabilities: { low: 0.1, medium: 0.45, high: 0.4, critical: 0.05 },
+      rawOverall: { score: 1.4, confidence: 0.47 },
+    });
+    expect(r.summary).toMatch(/most likely overall risk is MEDIUM \(45%; low 10%, medium 45%/);
+  });
+
+  it('is certain when one level has at least half the probability; ties go higher', async () => {
+    const sure = await subqProvider(answer({ '0': 0.7, '1': 0.2, '2': 0.1, '3': 0 }, 0.4)).assess(
+      input(),
+    );
+    expect(sure).toMatchObject({ riskLevel: 'low', uncertain: false });
+    const tie = await subqProvider(answer({ '0': 0, '1': 0.5, '2': 0.5, '3': 0 }, 1.5)).assess(
+      input(),
+    );
+    expect(tie).toMatchObject({ riskLevel: 'high', uncertain: false });
+  });
+
+  it('rejects probabilities for levels that were not offered', async () => {
+    await expect(
+      subqProvider(answer({ '0': 0.5, '7': 0.5 }, 1)).assess(input()),
+    ).rejects.toMatchObject({ kind: 'invalid_response' });
+  });
+});
+
 describe('validateAnswers', () => {
   it('accepts a well-formed response', () => {
     const q: Record<string, Question> = { a: { type: 'noul', instructions: 'i' } };

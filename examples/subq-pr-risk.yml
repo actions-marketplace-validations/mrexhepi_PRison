@@ -12,6 +12,8 @@ analysis:
   fail_on_incomplete_context: false
 
 risk:
+  # decide: SubQ can raise risk and request review. advisory: SubQ is reported only.
+  ai_mode: decide
   fail_on: high
   require_review:
     - critical

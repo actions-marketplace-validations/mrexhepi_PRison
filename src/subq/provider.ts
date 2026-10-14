@@ -1,10 +1,12 @@
-import { scoreToLevel } from '../risk/scoring.js';
-import type {
-  AssessmentInput,
-  AssessmentResult,
-  CategoryJudgment,
-  DecisionProvider,
-  RiskCategory,
+import { UNCERTAIN_BELOW, scoreToLevel } from '../risk/scoring.js';
+import {
+  RISK_LEVELS,
+  type AssessmentInput,
+  type AssessmentResult,
+  type CategoryJudgment,
+  type DecisionProvider,
+  type RiskCategory,
+  type RiskLevel,
 } from '../types.js';
 import { ProviderError } from '../utils/errors.js';
 import { SUBQ_INPUT_PRICE_PER_MTOK_USD, SUBQ_SNAP_MODEL, type DecisionResponse } from './api.js';
@@ -58,13 +60,40 @@ export function interpretAnswers(
     return ans?.type === 'noul' ? [{ findingId, probability: ans.noul }] : [];
   });
 
-  const riskLevel = scoreToLevel(riskScore);
+  // SubQ returns a probability per level, keyed by level index ("0".."3"). Use the most likely
+  // level rather than banding the blended score: a blend of 1.47 can mean "torn between medium
+  // and high" or "spread across all four", and only the probabilities tell those apart.
+  const probs = RISK_LEVELS.map((_, i) => overall.probabilities[String(i)]);
+  const haveProbs = levels === RISK_LEVELS.length && probs.every((p) => typeof p === 'number');
+  let riskLevel = scoreToLevel(riskScore);
+  let levelProbabilities: Record<RiskLevel, number> | undefined;
+  let levelProbability: number | undefined;
+  if (haveProbs) {
+    levelProbabilities = Object.fromEntries(
+      RISK_LEVELS.map((l, i) => [l, probs[i] as number]),
+    ) as Record<RiskLevel, number>;
+    // Ties go to the higher level.
+    let best = 0;
+    probs.forEach((p, i) => {
+      if ((p as number) >= (probs[best] as number)) best = i;
+    });
+    riskLevel = RISK_LEVELS[best] as RiskLevel;
+    levelProbability = probs[best] as number;
+  }
+  const uncertain = levelProbability !== undefined && levelProbability < UNCERTAIN_BELOW;
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  const verdict = levelProbabilities
+    ? `SubQ Snap's most likely overall risk is ${riskLevel.toUpperCase()} (${pct(levelProbability as number)}; ` +
+      RISK_LEVELS.map((l) => `${l} ${pct(levelProbabilities[l])}`).join(', ') +
+      `). ${uncertain ? `No level reached ${pct(UNCERTAIN_BELOW)}, so this answer is uncertain and is not used to raise risk. ` : ''}`
+    : `SubQ Snap rated merge risk ${riskLevel.toUpperCase()} (${riskScore}/100). `;
   const elevated = categories
     .filter((c) => c.probability >= 0.5)
     .sort((x, y) => y.probability - x.probability)
     .map((c) => `${c.category} (${Math.round(c.probability * 100)}%)`);
   const summary =
-    `SubQ Snap rated merge risk ${riskLevel.toUpperCase()} (${riskScore}/100, confidence ${Math.round(overall.confidence * 100)}%). ` +
+    verdict +
+    `SubQ confidence ${pct(overall.confidence)}. ` +
     (elevated.length
       ? `Elevated categories: ${elevated.join(', ')}.`
       : 'No risk category exceeded 50% probability.') +
@@ -76,7 +105,14 @@ export function interpretAnswers(
     model: response.model,
     riskLevel,
     riskScore,
+    ...(levelProbabilities ? { levelProbabilities, levelProbability } : {}),
+    uncertain,
     confidence: overall.confidence,
+    rawOverall: {
+      score: overall.score,
+      probabilities: overall.probabilities,
+      confidence: overall.confidence,
+    },
     summary,
     categories,
     findingJudgments,

@@ -127,6 +127,16 @@ report:
     );
   });
 
+  it('resolves ai_mode from input, then repository config, then decide', () => {
+    const repo = parseRepoConfig('version: 1\nrisk:\n  ai_mode: advisory\n', 'x');
+    expect(resolveSettings(parseInputs(reader({})), repo).aiMode).toBe('advisory');
+    expect(resolveSettings(parseInputs(reader({ 'ai-mode': 'decide' })), repo).aiMode).toBe(
+      'decide',
+    );
+    expect(resolveSettings(parseInputs(reader({})), undefined).aiMode).toBe('decide');
+    expect(() => parseInputs(reader({ 'ai-mode': 'yolo' }))).toThrow(ConfigError);
+  });
+
   it('rejects oversized config', () => {
     expect(() => parseRepoConfig('version: 1\n#' + 'x'.repeat(70_000), 'x')).toThrow(/exceeds/);
   });

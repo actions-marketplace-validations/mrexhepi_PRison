@@ -38,12 +38,16 @@ export interface PolicyOutcome {
   failReason?: string;
   /** True when a risk-based failure was suppressed by dry-run. */
   dryRunSuppressed: boolean;
+  /** GO / NO GO: true only when the decision is pass. */
+  go: boolean;
 }
 
 /**
- * Deterministic policy engine. The model can raise the effective risk level and request
- * review, but nothing it returns can lower a deterministic finding, change thresholds or
- * turn a failed assessment into a pass.
+ * Deterministic policy engine. In ai_mode 'decide' the model can raise the effective risk
+ * level and request review, but nothing it returns can lower a deterministic finding, change
+ * thresholds or turn a failed assessment into a pass. An uncertain answer (no level reached
+ * UNCERTAIN_BELOW) never raises the level. In ai_mode 'advisory' the model is reported only
+ * and the decision comes from rules, scanners and policy alone.
  */
 export function evaluatePolicy(input: PolicyInput): PolicyOutcome {
   const { settings, findings, completeness, ai } = input;
@@ -56,10 +60,21 @@ export function evaluatePolicy(input: PolicyInput): PolicyOutcome {
   const deterministicLevel: RiskLevel | 'none' = detLevels.length ? maxLevel(...detLevels) : 'none';
 
   const aiResult = ai.status === 'completed' ? ai.result : undefined;
+  const advisory = settings.aiMode === 'advisory';
+  const aiRaises = !advisory && aiResult !== undefined && !aiResult.uncertain;
   const effectiveLevel = maxLevel(
     deterministicLevel === 'none' ? undefined : deterministicLevel,
-    aiResult?.riskLevel,
+    aiRaises ? aiResult.riskLevel : undefined,
   );
+  if (advisory) {
+    reasons.push(
+      "ai_mode 'advisory': SubQ Snap is reported only and does not affect the decision.",
+    );
+  } else if (aiResult?.uncertain) {
+    reasons.push(
+      `SubQ Snap's answer was uncertain (most likely ${aiResult.riskLevel} at ${Math.round((aiResult.levelProbability ?? 0) * 100)}%), so it was not used to raise risk.`,
+    );
+  }
 
   const confirmedCritical = findings.filter(
     (f) => f.status === 'confirmed' && f.severity === 'critical',
@@ -98,7 +113,7 @@ export function evaluatePolicy(input: PolicyInput): PolicyOutcome {
     review = true;
     reasons.push(`Policy requires review for: ${triggeredTags.join(', ')}.`);
   }
-  if (aiResult?.requiresHumanReview) {
+  if (!advisory && aiResult?.requiresHumanReview) {
     review = true;
     reasons.push('SubQ Snap indicated that close human review is needed.');
   }
@@ -121,7 +136,12 @@ export function evaluatePolicy(input: PolicyInput): PolicyOutcome {
   let failReason: string | undefined;
   let dryRunSuppressed = false;
 
-  if (ai.status === 'failed' || ai.status === 'skipped') {
+  if (advisory && (ai.status === 'failed' || ai.status === 'skipped')) {
+    reasons.push(
+      `AI assessment ${ai.status}${ai.error ? `: ${ai.error}` : ''} (advisory; no effect).`,
+    );
+    decision = blocked ? 'blocked' : review ? 'review_required' : 'pass';
+  } else if (ai.status === 'failed' || ai.status === 'skipped') {
     const what = ai.status === 'skipped' ? 'skipped' : 'failed';
     reasons.push(`AI assessment ${what}${ai.error ? `: ${ai.error}` : ''}.`);
     if (settings.providerErrorPolicy === 'require-review') {
@@ -166,5 +186,6 @@ export function evaluatePolicy(input: PolicyInput): PolicyOutcome {
     fail,
     ...(failReason ? { failReason } : {}),
     dryRunSuppressed,
+    go: decision === 'pass',
   };
 }

@@ -6,6 +6,7 @@ import { makeFinding } from '../../src/scanners/finding.js';
 import {
   buildAnnotations,
   checkConclusion,
+  checkTitle,
   renderMarkdown,
   type ReportModel,
 } from '../../src/reports/render.js';
@@ -44,6 +45,7 @@ const ai = (score: number, review = false): AssessmentResult => ({
   model: 'subq-snap-preview',
   riskLevel: scoreToLevel(score),
   riskScore: score,
+  uncertain: false,
   confidence: 0.8,
   summary: 's',
   categories: [],
@@ -90,12 +92,12 @@ function evalP(over: Partial<PolicyInput>) {
 describe('scoring bands', () => {
   it.each([
     [0, 'low'],
-    [19, 'low'],
-    [20, 'medium'],
-    [39, 'medium'],
-    [40, 'high'],
-    [69, 'high'],
-    [70, 'critical'],
+    [16, 'low'],
+    [17, 'medium'],
+    [49, 'medium'], // the 1.47/3 answer from the first live run is nearest to medium
+    [50, 'high'],
+    [83, 'high'],
+    [84, 'critical'],
     [100, 'critical'],
   ])('%i -> %s', (s, l) => expect(scoreToLevel(s)).toBe(l));
   it('rejects invalid scores', () => {
@@ -207,6 +209,33 @@ describe('policy engine', () => {
     expect(o.fail).toBe(true);
   });
 
+  it('an uncertain AI answer never raises the level', () => {
+    const o = evalP({
+      ai: {
+        status: 'completed',
+        result: { ...ai(55), uncertain: true, riskLevel: 'high', levelProbability: 0.4 },
+      },
+    });
+    expect(o.effectiveLevel).toBe('low');
+    expect(o.reasons.join()).toMatch(/uncertain \(most likely high at 40%\)/);
+  });
+
+  it('advisory mode: AI level, review flag and failures do not affect the decision', () => {
+    const adv = settings({ aiMode: 'advisory', providerErrorPolicy: 'fail' });
+    const raised = evalP({ settings: adv, ai: { status: 'completed', result: ai(90, true) } });
+    expect(raised).toMatchObject({ decision: 'pass', effectiveLevel: 'low', go: true });
+    const failed = evalP({ settings: adv, ai: { status: 'failed', error: 'timeout' } });
+    expect(failed).toMatchObject({ decision: 'pass', fail: false, go: true });
+    const det = evalP({ settings: adv, findings: [secret], ai: { status: 'failed' } });
+    expect(det).toMatchObject({ decision: 'blocked', go: false });
+  });
+
+  it('go is true only for pass', () => {
+    expect(evalP({}).go).toBe(true);
+    expect(evalP({ ai: { status: 'completed', result: ai(55, true) } }).go).toBe(false);
+    expect(evalP({ ai: { status: 'failed' } }).go).toBe(false);
+  });
+
   it('insufficient-evidence findings do not raise the level', () => {
     const weak = makeFinding({
       source: 's',
@@ -238,7 +267,7 @@ describe('report rendering', () => {
     for (const s of [
       '# SubQ PR Risk Assessment',
       '**Effective risk:** HIGH',
-      '**AI score:** 62/100',
+      '**AI verdict:** HIGH',
       '**Decision:** REVIEW REQUIRED',
       '## Findings',
       '### HIGH - Open ingress',
@@ -248,6 +277,25 @@ describe('report rendering', () => {
     ]) {
       expect(m).toContain(s);
     }
+  });
+
+  it('shows the most likely level and the per-level probabilities, not a blended score', () => {
+    const result: AssessmentResult = {
+      ...ai(49),
+      riskLevel: 'medium',
+      levelProbabilities: { low: 0.1, medium: 0.45, high: 0.4, critical: 0.05 },
+      levelProbability: 0.45,
+      uncertain: true,
+      confidence: 0.47,
+    };
+    const m = renderMarkdown(model({ ai: { status: 'completed', result, provider: 'subq' } }));
+    expect(m).toContain('**AI verdict:** MEDIUM (45%), uncertain');
+    expect(m).toContain('| 10% | **45%** | 40% | 5% |');
+    expect(m).toContain('treated as uncertain');
+    expect(m).not.toMatch(/49\/100/);
+    expect(checkTitle(model({ ai: { status: 'completed', result, provider: 'subq' } }))).toMatch(
+      /^NO GO - REVIEW REQUIRED: .*AI MEDIUM \(45%\), uncertain/,
+    );
   });
 
   it('labels mock provider output', () => {
@@ -260,7 +308,7 @@ describe('report rendering', () => {
     const m = renderMarkdown(
       model({ ai: { status: 'failed', error: 'SubQ request timed out.', provider: 'subq' } }),
     );
-    expect(m).toContain('**AI score:** n/a');
+    expect(m).toContain('**AI verdict:** n/a');
     expect(m).toContain('Failed: SubQ request timed out');
   });
 

@@ -1,12 +1,14 @@
+import type { AiMode } from '../config/schema.js';
 import type { PolicyOutcome } from '../risk/policy.js';
 import { SEVERITY_RANK } from '../scanners/finding.js';
-import type {
-  AssessmentResult,
-  AssessmentStatus,
-  ContextCompleteness,
-  FinalDecision,
-  ScannerFinding,
-  ScannerStatus,
+import {
+  RISK_LEVELS,
+  type AssessmentResult,
+  type AssessmentStatus,
+  type ContextCompleteness,
+  type FinalDecision,
+  type ScannerFinding,
+  type ScannerStatus,
 } from '../types.js';
 import { code, md, plain } from './escape.js';
 import type { CheckAnnotation, CheckConclusion } from '../github/api.js';
@@ -25,6 +27,8 @@ export interface ReportModel {
   completeness: ContextCompleteness;
   includeAiExplanation: boolean;
   dryRun: boolean;
+  /** Defaults to 'decide'. */
+  aiMode?: AiMode;
   outsideDiffFindings: number;
   runUrl?: string;
 }
@@ -119,7 +123,7 @@ export function renderMarkdown(m: ReportModel): string {
       ? ' (deterministic only; AI assessment not required)'
       : ' (deterministic findings only; AI assessment unavailable)';
   out.push(`**Effective risk:** ${o.effectiveLevel.toUpperCase()}${effectiveNote}  `);
-  out.push(`**AI score:** ${r ? `${r.riskScore}/100 (${r.riskLevel})` : 'n/a'}  `);
+  out.push(`**AI verdict:** ${r ? aiVerdict(r, m.aiMode) : 'n/a'}  `);
   out.push(
     `**Deterministic findings:** ${m.findings.length}${o.deterministicLevel !== 'none' ? ` (highest: ${o.deterministicLevel})` : ''}  `,
   );
@@ -153,6 +157,20 @@ export function renderMarkdown(m: ReportModel): string {
         '',
       );
     }
+  }
+
+  if (r?.levelProbabilities) {
+    const p = r.levelProbabilities;
+    out.push(
+      '## SubQ Snap overall answer',
+      '',
+      '| Low | Medium | High | Critical |',
+      '| --- | --- | --- | --- |',
+      `| ${RISK_LEVELS.map((l) => (l === r.riskLevel ? `**${pct(p[l])}**` : pct(p[l]))).join(' | ')} |`,
+      '',
+      `SubQ confidence: ${pct(r.confidence)}.${r.uncertain ? ' No level reached 50%, so the answer is treated as uncertain.' : ''}`,
+      '',
+    );
   }
 
   if (r && m.includeAiExplanation && r.categories.length) {
@@ -202,7 +220,7 @@ export function renderMarkdown(m: ReportModel): string {
   out.push(
     '',
     '---',
-    '_Scores are model judgments and initial policy bands, not calibrated incident probabilities. Findings are produced by deterministic rules and scanners; the model can raise but never lower deterministic risk._',
+    '_AI probabilities are SubQ Snap judgments, not calibrated incident rates. Findings come from deterministic rules and scanners; the model can raise but never lower deterministic risk, and uncertain or advisory answers never raise it._',
   );
   if (m.runUrl) out.push('', `[Workflow run](${encodeURI(m.runUrl)})`);
 
@@ -213,11 +231,27 @@ export function renderMarkdown(m: ReportModel): string {
   return text;
 }
 
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** One-line AI verdict: the most likely level and its probability, never a blended score. */
+export function aiVerdict(r: AssessmentResult, aiMode: AiMode = 'decide'): string {
+  const level = r.riskLevel.toUpperCase();
+  const base = r.levelProbability !== undefined ? `${level} (${pct(r.levelProbability)})` : level;
+  const notes = [
+    ...(r.uncertain ? ['uncertain'] : []),
+    ...(aiMode === 'advisory' ? ['advisory'] : []),
+  ];
+  return notes.length ? `${base}, ${notes.join(', ')}` : base;
+}
+
 export function checkTitle(m: ReportModel): string {
   const o = m.outcome;
   const ai =
-    m.ai.status === 'completed' && m.ai.result ? `, AI ${m.ai.result.riskScore}/100` : ', AI n/a';
-  return `${DECISION_LABEL[o.decision]}: ${o.effectiveLevel} risk${ai}${m.dryRun ? ' (dry-run)' : ''}`;
+    m.ai.status === 'completed' && m.ai.result
+      ? `, AI ${aiVerdict(m.ai.result, m.aiMode)}`
+      : ', AI n/a';
+  const go = o.go ? 'GO' : 'NO GO';
+  return `${go} - ${DECISION_LABEL[o.decision]}: ${o.effectiveLevel} risk${ai}${m.dryRun ? ' (dry-run)' : ''}`;
 }
 
 /** Build check annotations only for lines that are verifiably part of the PR diff. */

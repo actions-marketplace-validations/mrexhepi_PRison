@@ -1,9 +1,11 @@
 import { ConfigError } from '../utils/errors.js';
 import { MODES, type Mode } from '../types.js';
 import {
+  AI_MODES,
   FAIL_ON,
   PROVIDER_ERROR_POLICIES,
   REPORT_DESTINATIONS,
+  type AiMode,
   type FailOn,
   type ProviderErrorPolicy,
   type ReportDestination,
@@ -24,6 +26,7 @@ export interface ActionInputs {
   configPathExplicit: boolean;
   mode?: Mode;
   failOn?: FailOn;
+  aiMode?: AiMode;
   report?: ReportDestination;
   maxFiles?: number;
   maxDiffLines?: number;
@@ -93,6 +96,7 @@ export function parseInputs(read: InputReader): ActionInputs {
     configPathExplicit: configRaw !== '' && configRaw !== DEFAULT_CONFIG_PATH,
     mode: oneOf('mode', read('mode'), MODES),
     failOn: oneOf('fail-on', read('fail-on'), FAIL_ON),
+    aiMode: oneOf('ai-mode', read('ai-mode'), AI_MODES),
     report: oneOf('report', read('report'), REPORT_DESTINATIONS),
     maxFiles: int('max-files', read('max-files'), 1, 3000),
     maxDiffLines: int('max-diff-lines', read('max-diff-lines'), 1, 200_000),
