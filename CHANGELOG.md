@@ -1,5 +1,7 @@
 # Changelog
 
+This project started as an experiment in testing SubQ (subq.ai) on pull request risk review.
+
 ## 1.0.1
 
 - Fix: the action failed to load because an input description in `action.yml` contained a

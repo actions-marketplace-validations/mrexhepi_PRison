@@ -16,6 +16,10 @@ GitHub Check with evidence, recommended actions and an enforceable decision.
 > by this project (no API key was available during development). All tests use a fake of
 > the documented contract. See [Known limitations](#known-limitations).
 
+> **Background:** PRison started as an experimental project for trying out
+> [SubQ](https://subq.ai) and its Snap Decisions API on a real use case: pull request risk
+> review. It is a personal side project, not an official SubQ product.
+
 ## Contents
 
 1. [Overview](#overview)
