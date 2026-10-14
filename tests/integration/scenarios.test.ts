@@ -131,7 +131,7 @@ describe('integration scenarios', () => {
     const r = await run(deps(gh, core, subqProvider(fakeSubQ({ overall: 0.3 }))));
     expect(core.outputs['context-complete']).toBe('false');
     expect(r.outcome?.decision).toBe('review_required');
-    expect(r.markdown).toContain('Context truncated: Yes');
+    expect(r.markdown).toContain('Truncated: Yes.');
     expect(r.markdown).toMatch(/Only 20 of 30 changed files/);
     expect(r.markdown).toMatch(/exceeded max-diff-lines/);
   });
@@ -200,7 +200,7 @@ describe('integration scenarios', () => {
     expect(r.outcome?.decision).toBe('inconclusive');
     expect(core.outputs['assessment-status']).toBe('skipped');
     expect(core.logs.join()).toMatch(/Could not create check run/);
-    expect(core.summary).toContain('INCONCLUSIVE');
+    expect(core.summary).toContain('NO GO (inconclusive');
     expect(core.failed).toBeUndefined();
   });
 

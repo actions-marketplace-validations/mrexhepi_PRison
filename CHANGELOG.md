@@ -2,6 +2,12 @@
 
 This project started as an experiment in testing SubQ (subq.ai) on pull request risk review.
 
+## 1.0.3
+
+- Shorter, clearer report. It opens with the GO / NO GO decision and the reasons, then one
+  table row per finding (with SubQ's view of each) and a one-line risk summary. Finding
+  explanations, the SubQ answer, scanners and coverage move into a collapsed Details section.
+
 ## 1.0.2
 
 - The AI verdict is SubQ's most likely overall level with its probability, and the report

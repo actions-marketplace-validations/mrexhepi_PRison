@@ -265,18 +265,35 @@ describe('report rendering', () => {
   it('renders the required sections', () => {
     const m = renderMarkdown(model());
     for (const s of [
-      '# SubQ PR Risk Assessment',
-      '**Effective risk:** HIGH',
-      '**AI verdict:** HIGH',
-      '**Decision:** REVIEW REQUIRED',
-      '## Findings',
-      '### HIGH - Open ingress',
-      '## Analysis completeness',
-      'Changed files analyzed: 1/1',
-      'Context truncated: No',
+      '## PR risk: ⚠️ NO GO (review required)',
+      '**Why**',
+      '- Effective risk high requires review by policy.',
+      '| HIGH | Open ingress | `src/a.ts:1` |',
+      'Risk: **HIGH** · Rules and scanners: HIGH (1 finding) · SubQ: HIGH',
+      '<summary>Details</summary>',
+      '**HIGH - Open ingress** in `src/a.ts:1`',
+      'Files: 1/1; changed lines: 1/1',
+      'Truncated: No.',
     ]) {
       expect(m).toContain(s);
     }
+    // Decision first; details collapsed after the one-line risk summary.
+    expect(m.indexOf('NO GO')).toBeLessThan(m.indexOf('**Why**'));
+    expect(m.indexOf('Risk: **HIGH**')).toBeLessThan(m.indexOf('<details>'));
+  });
+
+  it('a GO report is short and keeps setting notes out of the reasons', () => {
+    const m = renderMarkdown(
+      model({
+        outcome: evalP({ settings: settings({ aiMode: 'advisory' }) }),
+        findings: [],
+        aiMode: 'advisory',
+      }),
+    );
+    expect(m).toMatch(/^## PR risk: ✅ GO\n/);
+    expect(m).toContain('No blocking findings and no policy triggers.');
+    expect(m).not.toContain('**Why**');
+    expect(m).toMatch(/_ai\\_mode 'advisory'.*<\/details>/s);
   });
 
   it('shows the most likely level and the per-level probabilities, not a blended score', () => {
@@ -289,7 +306,7 @@ describe('report rendering', () => {
       confidence: 0.47,
     };
     const m = renderMarkdown(model({ ai: { status: 'completed', result, provider: 'subq' } }));
-    expect(m).toContain('**AI verdict:** MEDIUM (45%), uncertain');
+    expect(m).toContain('SubQ: MEDIUM (45%), uncertain');
     expect(m).toContain('| 10% | **45%** | 40% | 5% |');
     expect(m).toContain('treated as uncertain');
     expect(m).not.toMatch(/49\/100/);
@@ -308,7 +325,7 @@ describe('report rendering', () => {
     const m = renderMarkdown(
       model({ ai: { status: 'failed', error: 'SubQ request timed out.', provider: 'subq' } }),
     );
-    expect(m).toContain('**AI verdict:** n/a');
+    expect(m).toContain('SubQ: n/a (failed)');
     expect(m).toContain('Failed: SubQ request timed out');
   });
 

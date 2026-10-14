@@ -88,120 +88,140 @@ export function checkConclusion(outcome: PolicyOutcome): CheckConclusion {
   }
 }
 
-function findingBlock(f: ScannerFinding, judgment: number | undefined): string {
-  const lines = [`### ${f.severity.toUpperCase()} - ${md(f.title, 200)}`, ''];
-  if (f.file) lines.push(`- File: ${code(f.file + (f.startLine ? `:${f.startLine}` : ''))}`);
-  lines.push(
-    `- Evidence status: ${STATUS_LABEL[f.status]}${f.verified ? ' (verified by scanner)' : ''}`,
-  );
-  lines.push(`- Source: ${f.sources.map((s) => md(s, 60)).join(', ')}`);
-  if (f.evidence) lines.push(`- Evidence: ${code(f.evidence, 200)}`);
-  if (f.description) lines.push(`- Impact: ${md(f.description, 400)}`);
-  if (judgment !== undefined) {
-    lines.push(
-      `- SubQ Snap: ${Math.round(judgment * 100)}% probability this is a real risk in context`,
-    );
-  }
+const HEADLINE: Record<FinalDecision, string> = {
+  pass: '✅ GO',
+  review_required: '⚠️ NO GO (review required)',
+  blocked: '⛔ NO GO (blocked)',
+  inconclusive: '❔ NO GO (inconclusive: SubQ result unavailable)',
+};
+
+/** Reasons that describe configuration rather than this PR; shown in the footer instead. */
+const isSettingNote = (reason: string) =>
+  reason.startsWith("ai_mode 'advisory'") || reason.startsWith('dry-run is enabled');
+
+/** Inline code that is also safe inside a table cell. */
+const cell = (text: string, max = 120) => code(text, max).replace(/\|/g, '\\|');
+
+function findingDetail(f: ScannerFinding): string {
+  const parts = [
+    `**${f.severity.toUpperCase()} - ${md(f.title, 200)}**${f.file ? ` in ${code(f.file + (f.startLine ? `:${f.startLine}` : ''))}` : ''}`,
+  ];
+  if (f.description) parts.push(md(f.description, 400));
   const step = f.tags.map((t) => NEXT_STEP[t]).find(Boolean);
-  if (step) lines.push(`- Recommended action: ${step}`);
-  return lines.join('\n');
+  if (step) parts.push(`Next: ${step}`);
+  if (f.evidence) parts.push(`Evidence: ${code(f.evidence, 200)}`);
+  parts.push(
+    `${STATUS_LABEL[f.status]}${f.verified ? ' (verified by scanner)' : ''}; source: ${f.sources.map((x) => md(x, 60)).join(', ')}.`,
+  );
+  return `- ${parts.join('<br>')}`;
 }
 
+/**
+ * Compact report: the decision and why first, one table row per finding, and everything
+ * else (explanations, the SubQ answer, scanners, completeness) in a collapsed section.
+ */
 export function renderMarkdown(m: ReportModel): string {
   const o = m.outcome;
   const r = m.ai.status === 'completed' ? m.ai.result : undefined;
   const judgments = new Map(r?.findingJudgments.map((j) => [j.findingId, j.probability]) ?? []);
+  const sorted = [...m.findings].sort(
+    (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
+  );
+  const shown = sorted.slice(0, MAX_FINDINGS_RENDERED);
   const out: string[] = [];
 
-  out.push(`# ${REPORT_TITLE}`, '');
+  out.push(
+    `## PR risk: ${HEADLINE[o.decision]}${m.dryRun && !o.go ? ', dry-run: not enforced' : ''}`,
+    '',
+  );
   if (m.ai.provider === 'mock') {
     out.push('> [!WARNING]', '> MOCK provider in use. This is not a real SubQ assessment.', '');
   }
-  const effectiveNote = r
-    ? ''
+
+  const why = o.reasons.filter((x) => !isSettingNote(x));
+  if (why.length) {
+    out.push('**Why**', '');
+    for (const reason of why) out.push(`- ${md(reason, 300)}`);
+    out.push('');
+  } else if (o.go) {
+    out.push('No blocking findings and no policy triggers.', '');
+  }
+
+  if (shown.length) {
+    const withAi = shown.some((f) => judgments.has(f.id));
+    out.push(
+      `| Severity | Finding | File${withAi ? ' | SubQ: real risk?' : ''} |`,
+      `| --- | --- | ---${withAi ? ' | ---' : ''} |`,
+    );
+    for (const f of shown) {
+      const file = f.file ? cell(f.file + (f.startLine ? `:${f.startLine}` : '')) : '';
+      const j = judgments.get(f.id);
+      out.push(
+        `| ${f.severity.toUpperCase()} | ${md(f.title, 120)} | ${file}${withAi ? ` | ${j === undefined ? '' : pct(j)}` : ''} |`,
+      );
+    }
+    if (sorted.length > shown.length) {
+      out.push('', `_${sorted.length - shown.length} lower-severity finding(s) not shown._`);
+    }
+    out.push('');
+  } else {
+    out.push('No findings in the changed files.', '');
+  }
+
+  const det =
+    o.deterministicLevel === 'none'
+      ? 'none'
+      : `${o.deterministicLevel.toUpperCase()} (${m.findings.length} finding${m.findings.length === 1 ? '' : 's'})`;
+  const subq = r
+    ? `${aiVerdict(r, m.aiMode)}`
     : m.ai.status === 'not_required'
-      ? ' (deterministic only; AI assessment not required)'
-      : ' (deterministic findings only; AI assessment unavailable)';
-  out.push(`**Effective risk:** ${o.effectiveLevel.toUpperCase()}${effectiveNote}  `);
-  out.push(`**AI verdict:** ${r ? aiVerdict(r, m.aiMode) : 'n/a'}  `);
+      ? 'not needed'
+      : `n/a (${m.ai.status})`;
   out.push(
-    `**Deterministic findings:** ${m.findings.length}${o.deterministicLevel !== 'none' ? ` (highest: ${o.deterministicLevel})` : ''}  `,
-  );
-  out.push(
-    `**Decision:** ${DECISION_LABEL[o.decision]}${m.dryRun ? ' (dry-run: not enforced)' : ''}`,
+    `Risk: **${o.effectiveLevel.toUpperCase()}** · Rules and scanners: ${det} · SubQ: ${subq}`,
     '',
   );
 
-  out.push('## Summary', '');
-  if (r && m.includeAiExplanation) out.push(md(r.summary, 1000), '');
-  if (r) out.push(`Recommended next step: ${md(r.recommendedAction, 200)}`, '');
-  if (o.reasons.length) {
-    out.push('Policy evaluation:', '');
-    for (const reason of o.reasons) out.push(`- ${md(reason, 400)}`);
+  // ---- Details (collapsed)
+  out.push('<details>', '<summary>Details</summary>', '');
+  if (shown.length) {
+    out.push('**Findings**', '');
+    for (const f of shown) out.push(findingDetail(f));
     out.push('');
   }
-  if (!r && o.reasons.length === 0) out.push('No AI assessment and no policy triggers.', '');
-
-  out.push('## Findings', '');
-  if (m.findings.length === 0) {
-    out.push('No deterministic findings in the changed files.', '');
-  } else {
-    const sorted = [...m.findings].sort(
-      (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
-    );
-    for (const f of sorted.slice(0, MAX_FINDINGS_RENDERED))
-      out.push(findingBlock(f, judgments.get(f.id)), '');
-    if (sorted.length > MAX_FINDINGS_RENDERED) {
+  if (r) {
+    out.push('**SubQ Snap**', '');
+    if (r.levelProbabilities) {
+      const p = r.levelProbabilities;
       out.push(
-        `_${sorted.length - MAX_FINDINGS_RENDERED} lower-severity finding(s) not shown._`,
+        '| Low | Medium | High | Critical |',
+        '| --- | --- | --- | --- |',
+        `| ${RISK_LEVELS.map((l) => (l === r.riskLevel ? `**${pct(p[l])}**` : pct(p[l]))).join(' | ')} |`,
         '',
       );
     }
-  }
-
-  if (r?.levelProbabilities) {
-    const p = r.levelProbabilities;
-    out.push(
-      '## SubQ Snap overall answer',
-      '',
-      '| Low | Medium | High | Critical |',
-      '| --- | --- | --- | --- |',
-      `| ${RISK_LEVELS.map((l) => (l === r.riskLevel ? `**${pct(p[l])}**` : pct(p[l]))).join(' | ')} |`,
-      '',
-      `SubQ confidence: ${pct(r.confidence)}.${r.uncertain ? ' No level reached 50%, so the answer is treated as uncertain.' : ''}`,
-      '',
-    );
-  }
-
-  if (r && m.includeAiExplanation && r.categories.length) {
-    out.push(
-      '## AI category assessment',
-      '',
-      '| Category | Probability of material risk |',
-      '| --- | --- |',
-    );
-    for (const c of r.categories)
-      out.push(`| ${c.category} | ${Math.round(c.probability * 100)}% |`);
+    const notes = [
+      `Confidence ${pct(r.confidence)}${r.uncertain ? ' (no level reached 50%, treated as uncertain)' : ''}.`,
+      `Close human review needed: ${pct(r.humanReviewProbability)}.`,
+    ];
+    if (m.includeAiExplanation && r.categories.length) {
+      notes.push(
+        `Category risk: ${r.categories.map((c) => `${c.category} ${pct(c.probability)}`).join(', ')}.`,
+      );
+    }
+    notes.push(`Suggested next step: ${md(r.recommendedAction, 200)}.`);
+    if (r.usage) {
+      notes.push(
+        `${r.usage.inputTokens.toLocaleString('en-US')} input tokens (about $${r.usage.estimatedCostUsd.toFixed(4)}).`,
+      );
+    }
+    for (const n of notes) out.push(`- ${n}`);
     out.push('');
+  } else {
+    out.push(`**SubQ Snap:** ${md(aiStatusText(m.ai), 300)}`, '');
   }
 
-  const c = m.completeness;
-  out.push('## Analysis completeness', '');
-  out.push(`- Changed files analyzed: ${c.filesAnalyzed}/${c.totalFiles}`);
-  out.push(`- Changed lines included: ${c.diffLinesIncluded}/${c.diffLinesTotal}`);
-  out.push(
-    `- Repository context files: ${c.contextFilesIncluded} included, ${c.contextFilesOmitted} omitted`,
-  );
-  out.push(`- Sensitive files excluded from AI context: ${c.sensitiveFilesExcluded}`);
-  out.push(`- Context truncated: ${c.truncated ? 'Yes' : 'No'}`);
-  out.push(`- AI assessment: ${md(aiStatusText(m.ai), 300)}`);
-  if (r?.usage) {
-    out.push(
-      `- SubQ input tokens: ${r.usage.inputTokens} (estimated cost $${r.usage.estimatedCostUsd.toFixed(4)})`,
-    );
-  }
-  out.push('');
-  out.push('| Scanner | Status | Findings |', '| --- | --- | --- |');
+  out.push('**Scanners**', '', '| Scanner | Status | Findings |', '| --- | --- | --- |');
   for (const s of m.scannerStatuses) {
     out.push(
       `| ${md(s.name, 80)}${s.required ? ' (required)' : ''} | ${s.status}${s.detail ? `: ${md(s.detail, 150)}` : ''} | ${s.findings} |`,
@@ -210,17 +230,25 @@ export function renderMarkdown(m: ReportModel): string {
   out.push('');
   if (m.outsideDiffFindings > 0) {
     out.push(
-      `- ${m.outsideDiffFindings} upstream scanner finding(s) outside the changed files were not included.`,
+      `${m.outsideDiffFindings} scanner finding(s) in files this PR does not change are not counted.`,
+      '',
     );
   }
-  if (c.limitations.length) {
-    out.push('', '### Limitations', '');
-    for (const l of c.limitations.slice(0, 20)) out.push(`- ${md(l, 300)}`);
-  }
+
+  const c = m.completeness;
   out.push(
+    '**Coverage**',
     '',
-    '---',
-    '_AI probabilities are SubQ Snap judgments, not calibrated incident rates. Findings come from deterministic rules and scanners; the model can raise but never lower deterministic risk, and uncertain or advisory answers never raise it._',
+    `- Files: ${c.filesAnalyzed}/${c.totalFiles}; changed lines: ${c.diffLinesIncluded}/${c.diffLinesTotal}; context files: ${c.contextFilesIncluded}${c.contextFilesOmitted ? ` (${c.contextFilesOmitted} omitted)` : ''}; sensitive files kept from AI: ${c.sensitiveFilesExcluded}.`,
+    `- Truncated: ${c.truncated ? 'Yes' : 'No'}.`,
+  );
+  for (const l of c.limitations.slice(0, 20)) out.push(`- ${md(l, 300)}`);
+  out.push('');
+  const settingNotes = o.reasons.filter(isSettingNote).map((x) => md(x, 200));
+  out.push(
+    `_${[...settingNotes, 'SubQ probabilities are model judgments, not measured incident rates; the model can raise but never lower risk from rules and scanners.'].join(' ')}_`,
+    '',
+    '</details>',
   );
   if (m.runUrl) out.push('', `[Workflow run](${encodeURI(m.runUrl)})`);
 
